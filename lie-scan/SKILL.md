@@ -98,7 +98,7 @@ rg -n 'catch\s*\([^)]*\)\s*\{\s*\}' --glob '!**/node_modules/**' . 2>/dev/null |
 
 ### Placeholder URLs (Type 6)
 ```bash
-rg -n '["'"'"'"](https?://)?(example\.(com|org|net)|placeholder\.\w+|your-?api|fake-?api|httpbin\.org)' --glob '!**/test/**' --glob '!**/README*' --glob '!**/docs/**' --glob '!**/*.test.*' --glob '!**/node_modules/**' . 2>/dev/null | head -10
+rg -n '["'"'"'"](https?://)?(example\.(com|org|net)|placeholder\.[a-z]{2,6}(/|["'"'"'"])|your-?api\.|fake-?api\.|httpbin\.org)' --glob '!**/test/**' --glob '!**/README*' --glob '!**/docs/**' --glob '!**/*.test.*' --glob '!**/node_modules/**' . 2>/dev/null | head -10
 ```
 
 ### Test Deception (Type 7)

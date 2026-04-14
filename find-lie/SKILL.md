@@ -127,7 +127,7 @@ rg -n '(validate|verify|check|isValid|isAuth|canAccess)\w*.*\{' -A5 --glob '!**/
 ### 1.5 — Disconnected Integration (Type 6)
 ```bash
 # Placeholder URLs in non-test code
-rg -n '["'"'"'"](https?://)?(localhost:\d+|example\.(com|org|net)|placeholder\.\w+|your-?api|api\.test|fake-?api|httpbin\.org)' --glob '!**/test/**' --glob '!**/README*' --glob '!**/docs/**' --glob '!**/*.test.*' --glob '!**/*.spec.*' .
+rg -n '["'"'"'"](https?://)?(localhost:\d+|example\.(com|org|net)|placeholder\.[a-z]{2,6}(/|["'"'"'"])|your-?api\.|api\.test[/"'"'"']|fake-?api\.|httpbin\.org)' --glob '!**/test/**' --glob '!**/README*' --glob '!**/docs/**' --glob '!**/*.test.*' --glob '!**/*.spec.*' .
 ```
 
 ```bash
@@ -235,16 +235,52 @@ done
 
 ## Step 5: Redundancy & Dead Code Detection (Phase 5)
 
-### 5.1 Duplicate Files
+### 5.1 Duplicate Files — raw hash
+
+Exact byte-for-byte duplicates. Cheapest check; run first.
+
 ```bash
-# Find identical files by hash
 find . -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.py' -o -name '*.rb' -o -name '*.go' -o -name '*.java' \) -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/vendor/*' | xargs shasum -a 256 2>/dev/null | sort | awk '{print $1}' | uniq -d | while read hash; do
   echo "DUPLICATE_HASH: $hash"
   grep "$hash" <(find . -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.py' \) -not -path '*/node_modules/*' -not -path '*/.git/*' | xargs shasum -a 256 2>/dev/null)
 done
 ```
 
-### 5.2 Duplicate Export Names
+### 5.2 Duplicate Files — normalized body hash
+
+Catches the common agent-failure mode where the same function is generated
+twice under different names (e.g. `formatUserDate` and `formatOrderDate` with
+identical bodies). The raw-hash check in 5.1 misses these; normalizing strips
+the incidental differences.
+
+Normalization rules (applied in order):
+1. Drop lines that are pure `//` or `#` comments
+2. Replace `function NAME`, `const NAME`, `class NAME` with `function NAME`,
+   `const NAME`, `class NAME` — i.e. strip the identifier after the keyword
+3. Drop blank lines
+4. SHA-256 the result
+
+```bash
+for f in $(find . -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.py' \) -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/vendor/*' 2>/dev/null); do
+  H=$(sed -E \
+        -e '/^[[:space:]]*(\/\/|#)/d' \
+        -e 's/(function|const|class|def)[[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*/\1 NAME/g' \
+        -e '/^[[:space:]]*$/d' \
+        "$f" | shasum -a 256 | awk '{print $1}')
+  echo "$H $f"
+done | sort | awk '
+  { count[$1]++; files[$1]=files[$1]" "$2 }
+  END {
+    for (k in count) if (count[k] > 1) {
+      print "NORMALIZED_DUPLICATE (hash=" substr(k,1,12) "):" files[k]
+    }
+  }'
+```
+
+Each normalized duplicate group is a **Type 8 (CRITICAL/WARNING depending on
+block size)** or **Type 9 (Redundant Files)** finding.
+
+### 5.3 Duplicate Export Names
 ```bash
 # Find same export names across files
 rg -n 'export\s+(function|const|class|type|interface|enum)\s+(\w+)' --no-filename -o --glob '!**/node_modules/**' --glob '!**/test/**' . 2>/dev/null | sort | uniq -d
@@ -252,22 +288,43 @@ rg -n 'export\s+(function|const|class|type|interface|enum)\s+(\w+)' --no-filenam
 
 If duplicates found, read both files and compare for functional equivalence.
 
-### 5.3 Orphan Files
-```bash
-# Collect all source files
-_ALL_FILES=$(find . -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.py' \) -not -path '*/node_modules/*' -not -path '*/.git/*' -not -name 'index.*' -not -name 'main.*' -not -name 'app.*' -not -name 'server.*' -not -name '*.config.*' -not -name '*.test.*' -not -name '*.spec.*' -not -name '*.d.ts')
+### 5.4 Orphan Files
 
-# For each file, check if it's imported anywhere
-echo "$_ALL_FILES" | while read f; do
-  _BASENAME=$(basename "$f" | sed 's/\.[^.]*$//')
-  _REFS=$(rg -l "from\s+['\"].*${_BASENAME}['\"]" --glob '!**/node_modules/*' . 2>/dev/null | wc -l | tr -d ' ')
-  if [ "$_REFS" = "0" ]; then
-    echo "ORPHAN: $f"
-  fi
-done
+**Precondition — entry-point detection:** the orphan check is only meaningful
+if the project has at least one canonical entry point. Without one, *every*
+file will appear orphan (e.g., a flat library of scripts). Skip the check and
+emit an INFO note in that case.
+
+```bash
+# Look for canonical entry points + framework-specific route files
+_ENTRY_COUNT=$(find . -maxdepth 4 -type f \( \
+    -name 'index.ts' -o -name 'index.tsx' -o -name 'index.js' -o -name 'index.jsx' \
+    -o -name 'main.ts' -o -name 'main.tsx' -o -name 'main.js' -o -name 'main.py' \
+    -o -name 'app.ts' -o -name 'app.tsx' -o -name 'app.js' -o -name 'app.py' \
+    -o -name 'server.ts' -o -name 'server.js' -o -name '__main__.py' \
+    -o -name 'cli.py' -o -name 'manage.py' \
+  \) -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l | tr -d ' ')
+
+# Next.js/Remix/SvelteKit file-based routes count as entry points too
+_ROUTE_COUNT=$(find . -path '*/app/*/page.*' -o -path '*/app/api/*' -o -path '*/pages/*' 2>/dev/null | wc -l | tr -d ' ')
+
+if [ "$_ENTRY_COUNT" = "0" ] && [ "$_ROUTE_COUNT" = "0" ]; then
+  echo "ORPHAN_CHECK_SKIPPED: no entry points found (index/main/app/server or route files). Skipping orphan detection — otherwise every file would be flagged. Report this as a single INFO finding rather than per-file orphans."
+else
+  _ALL_FILES=$(find . -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.py' \) -not -path '*/node_modules/*' -not -path '*/.git/*' -not -name 'index.*' -not -name 'main.*' -not -name 'app.*' -not -name 'server.*' -not -name '*.config.*' -not -name '*.test.*' -not -name '*.spec.*' -not -name '*.d.ts')
+
+  echo "$_ALL_FILES" | while read f; do
+    [ -z "$f" ] && continue
+    _BASENAME=$(basename "$f" | sed 's/\.[^.]*$//')
+    _REFS=$(rg -l "from\s+['\"].*${_BASENAME}['\"]" --glob '!**/node_modules/*' . 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$_REFS" = "0" ]; then
+      echo "ORPHAN: $f"
+    fi
+  done
+fi
 ```
 
-### 5.4 Unused Exports
+### 5.5 Unused Exports
 ```bash
 # For each export, check if it's imported anywhere
 rg -n 'export\s+(function|const|class)\s+(\w+)' -o --glob '!**/node_modules/**' -r '$2' . 2>/dev/null | sort -u | while read symbol; do

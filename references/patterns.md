@@ -159,9 +159,12 @@ SEVERITY: CRITICAL if no deletion found
 
 ### Placeholder URLs
 ```
-PATTERN: ["'](https?://)?(localhost:\d+|127\.0\.0\.1|example\.(com|org|net)|placeholder\.\w+|your-?api|api\.test|fake-?api|dummy-?api|httpbin\.org)
-SEVERITY: WARNING (localhost) | CRITICAL (example.com/placeholder in production config)
+PATTERN: ["'](https?://)?(localhost:\d+|127\.0\.0\.1|example\.(com|org|net)|placeholder\.[a-z]{2,6}(/|["'])|your-?api\.|api\.test[/"']|fake-?api\.|dummy-?api\.|httpbin\.org)
+SEVERITY: WARNING (localhost) | CRITICAL (example.com/placeholder.* in production config)
 EXCLUDE: test files, documentation, development config
+NOTE: The bare word "placeholder" is NOT a match — a TLD or path must follow
+      (e.g., "placeholder.io/", "placeholder.com"). This prevents false positives
+      on variable names like `const placeholders = [...]`.
 ```
 
 ### Empty/missing environment variables
@@ -211,11 +214,33 @@ SEVERITY: WARNING
 
 ## Type 8: Duplicate Code
 
-### Duplicate file detection
+### Duplicate file detection — raw hash
 ```
-METHOD: SHA-256 hash comparison of all source files
+METHOD: SHA-256 hash comparison of full file contents
 COMMAND: find . -name "*.ts" -o -name "*.js" -o -name "*.py" -o -name "*.tsx" -o -name "*.jsx" | xargs shasum -a 256 | sort | uniq -D -w 64
 SEVERITY: WARNING (identical files) | INFO (similar files > 80%)
+LIMITATION: Misses files that differ only in identifiers (common agent pattern:
+            same body, different function name).
+```
+
+### Duplicate file detection — normalized body hash
+```
+METHOD: Strip incidental differences, then SHA-256.
+NORMALIZATION (applied in order):
+  1. Delete pure-comment lines (// or #)
+  2. Replace `function NAME`, `const NAME`, `class NAME`, `def NAME` with
+     `function NAME`, `const NAME`, `class NAME`, `def NAME` — i.e. strip the
+     identifier so `formatUserDate` and `formatOrderDate` normalize to the same
+     token.
+  3. Drop blank lines
+  4. SHA-256 the result
+COMMAND: sed -E -e '/^[[:space:]]*(\/\/|#)/d' \
+                -e 's/(function|const|class|def)[[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*/\1 NAME/g' \
+                -e '/^[[:space:]]*$/d' <file> | shasum -a 256
+SEVERITY: CRITICAL (agent context-loss duplicate) | WARNING (intentional parallel impls)
+RATIONALE: Exact SHA matches catch lazy copy-paste; normalized SHA matches catch
+           agent context loss where the same logic is re-implemented under a new
+           name. The second case is the more common failure mode in AI-generated code.
 ```
 
 ### Duplicate code blocks (5+ lines)
@@ -285,6 +310,11 @@ SEVERITY: INFO
 METHOD: Build import graph, find unreferenced source files
 EXCLUDE: Entry points (index, main, app, server), config files, scripts, test files
 SEVERITY: WARNING
+PRECONDITION: Project must have ≥1 canonical entry point (index/main/app/server
+              or a framework routes directory). If none exists — e.g. a flat
+              library of standalone scripts — skip this check and emit a single
+              INFO finding instead. Without an entry point, every file would
+              appear orphan, drowning the report in false positives.
 ```
 
 ### Files with deprecated/old prefixes

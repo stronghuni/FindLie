@@ -58,7 +58,9 @@ CLEAN_NEGATIVES=(
   "empty_catch|catch[[:space:]]*\\([^)]*\\)[[:space:]]*\\{[[:space:]]*\\}"
   "always_true_validator|(validate|verify|check|isValid)[a-zA-Z]*[[:space:]]*\\([^)]*\\)[[:space:]]*:[[:space:]]*boolean[[:space:]]*\\{[[:space:]]*return true"
   "todo_marker|(TODO|FIXME|HACK|XXX)"
-  "placeholder_url|(localhost:[0-9]+|example\\.com|placeholder)"
+  # T6 placeholder URL must require context (TLD + /"' or URL prefix) so bare
+  # word "placeholder" or variables like `placeholders` do not false-positive.
+  "placeholder_url|(localhost:[0-9]+|example\\.com|placeholder\\.[a-z]{2,6}(/|[\"']))"
 )
 
 # Files in clean/ that are legitimately exempt from certain rules

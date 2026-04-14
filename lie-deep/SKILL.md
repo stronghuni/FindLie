@@ -207,7 +207,14 @@ Report weakly-tested or mock-only tests as Type 7.
 ## Phase 5: Complete Redundancy & Dead Code Analysis
 
 ### 5.1 Full Duplicate Detection
-Run all dupication checks from `/find-lie` Step 5 without limits.
+Run all duplication checks from `/find-lie` Step 5 without limits:
+- **5.1 raw SHA-256** — byte-for-byte duplicates
+- **5.2 normalized body hash** — strip comments + identifier names, then SHA-256.
+  This is the check that catches agent context-loss duplicates where the same
+  body appears under different function names (e.g. `formatUserDate` vs
+  `formatOrderDate`). **Always run this in deep mode — it's the most common
+  real-world duplicate.**
+- **5.3 duplicate export names** — same symbol exported from multiple files
 
 Additionally, for files with similar names:
 ```bash
@@ -232,6 +239,11 @@ done
 ```
 
 Identify files that NO other file points to (orphan files).
+
+**Precondition:** same as `/find-lie` Phase 5.3 — if the project has no entry
+points (`index`/`main`/`app`/`server` or framework route dirs), skip orphan
+detection and emit a single INFO finding instead. Without an entry point every
+file appears orphan, which is noise, not signal.
 
 **Comprehensive unused export scan:**
 For every exported symbol, verify it's consumed somewhere.
