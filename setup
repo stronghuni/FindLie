@@ -1,0 +1,151 @@
+#!/bin/bash
+# FindLie Setup Script
+# Installs FindLie skills to all detected AI coding agents
+
+set -e
+
+FINDLIE_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALLED=0
+SKILLS=("find-lie" "lie-scan" "lie-deep")
+
+echo ""
+echo "🔍 FindLie — AI Agent Lie Detector"
+echo "═══════════════════════════════════"
+echo ""
+
+# Parse arguments
+TARGET_HOST=""
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --host)
+      TARGET_HOST="$2"
+      shift 2
+      ;;
+    --help|-h)
+      echo "Usage: ./setup [--host <agent>]"
+      echo ""
+      echo "Agents: claude, codex, cursor, factory, slate, kiro, opencode"
+      echo ""
+      echo "If no --host is specified, auto-detects installed agents."
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+install_skills() {
+  local agent_name="$1"
+  local skills_dir="$2"
+  
+  if [ -d "$(dirname "$skills_dir")" ] || [ -n "$TARGET_HOST" ]; then
+    mkdir -p "$skills_dir"
+    for skill in "${SKILLS[@]}"; do
+      ln -sfn "$FINDLIE_DIR/$skill" "$skills_dir/$skill"
+    done
+    # Also link references directory so skills can access patterns/checklist/severity
+    ln -sfn "$FINDLIE_DIR/references" "$skills_dir/findlie-references"
+    echo "  ✅ $agent_name → $skills_dir"
+    INSTALLED=$((INSTALLED + 1))
+  fi
+}
+
+# Install to specific host or auto-detect
+if [ -n "$TARGET_HOST" ]; then
+  case "$TARGET_HOST" in
+    claude)
+      install_skills "Claude Code" "$HOME/.claude/skills"
+      ;;
+    codex)
+      install_skills "Codex CLI" "$HOME/.codex/skills"
+      ;;
+    cursor)
+      install_skills "Cursor" "$HOME/.cursor/skills"
+      ;;
+    factory)
+      install_skills "Factory Droid" "$HOME/.factory/skills"
+      ;;
+    slate)
+      install_skills "Slate" "$HOME/.slate/skills"
+      ;;
+    kiro)
+      install_skills "Kiro" "$HOME/.kiro/skills"
+      ;;
+    opencode)
+      install_skills "OpenCode" "$HOME/.config/opencode/skills"
+      ;;
+    *)
+      echo "Unknown agent: $TARGET_HOST"
+      echo "Supported: claude, codex, cursor, factory, slate, kiro, opencode"
+      exit 1
+      ;;
+  esac
+else
+  # Auto-detect installed agents
+  echo "Detecting installed AI coding agents..."
+  echo ""
+  
+  # Claude Code
+  [ -d "$HOME/.claude" ] && install_skills "Claude Code" "$HOME/.claude/skills"
+  
+  # Codex CLI
+  [ -d "$HOME/.codex" ] && install_skills "Codex CLI" "$HOME/.codex/skills"
+  
+  # Cursor
+  [ -d "$HOME/.cursor" ] && install_skills "Cursor" "$HOME/.cursor/skills"
+  
+  # Factory Droid
+  [ -d "$HOME/.factory" ] && install_skills "Factory Droid" "$HOME/.factory/skills"
+  
+  # Slate
+  [ -d "$HOME/.slate" ] && install_skills "Slate" "$HOME/.slate/skills"
+  
+  # Kiro
+  [ -d "$HOME/.kiro" ] && install_skills "Kiro" "$HOME/.kiro/skills"
+  
+  # OpenCode
+  [ -d "$HOME/.config/opencode" ] && install_skills "OpenCode" "$HOME/.config/opencode/skills"
+fi
+
+echo ""
+
+if [ "$INSTALLED" -gt 0 ]; then
+  echo "═══════════════════════════════════"
+  echo "✅ FindLie installed to $INSTALLED agent(s)"
+  echo ""
+  echo "Available commands:"
+  echo "  /find-lie   Standard analysis (recommended)"
+  echo "  /lie-scan   Quick pattern scan (~30s)"
+  echo "  /lie-deep   Deep forensic analysis (~10-30min)"
+  echo ""
+  echo "Try it now: open your AI coding agent and type /find-lie"
+  echo "═══════════════════════════════════"
+else
+  echo "⚠️  No AI coding agents detected."
+  echo ""
+  echo "Install to a specific agent:"
+  echo "  ./setup --host claude"
+  echo "  ./setup --host codex"
+  echo "  ./setup --host cursor"
+  echo ""
+  echo "Or install Claude Code first:"
+  echo "  https://docs.anthropic.com/en/docs/claude-code"
+fi
+
+# Also install to current project if in a git repo
+if [ -d ".git" ] || git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  _PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+  if [ -n "$_PROJECT_ROOT" ] && [ "$_PROJECT_ROOT" != "$FINDLIE_DIR" ]; then
+    echo ""
+    echo "📁 Current project detected: $(basename "$_PROJECT_ROOT")"
+    echo "   To add FindLie to this project (so teammates get it):"
+    echo "   mkdir -p $_PROJECT_ROOT/.claude/skills"
+    echo "   ln -sfn $FINDLIE_DIR/find-lie $_PROJECT_ROOT/.claude/skills/find-lie"
+    echo "   ln -sfn $FINDLIE_DIR/lie-scan $_PROJECT_ROOT/.claude/skills/lie-scan"
+    echo "   ln -sfn $FINDLIE_DIR/lie-deep $_PROJECT_ROOT/.claude/skills/lie-deep"
+  fi
+fi
+
+echo ""
