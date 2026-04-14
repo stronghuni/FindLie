@@ -58,9 +58,13 @@ git clone https://github.com/stronghuni/FindLie.git ~/FindLie && cd ~/FindLie &&
 
 ### `/lie-scan` — 빠른 스캔 (~30초)
 ```
-/lie-scan
+/lie-scan           # 인터랙티브
+/lie-scan --ci      # CI 모드 (비대화형, exit code 0/1/2)
 ```
 정적 패턴 스캔만 실행. CI/CD 통합에 적합.
+
+**CI 모드 exit code:** `0` = clean, `1` = warning, `2` = critical. 환경 변수
+`CI=1` 또는 파이프 리다이렉션 감지 시 자동으로 CI 모드로 전환됩니다.
 
 ### `/lie-deep` — 심층 분석 (~10-30분)
 ```
@@ -72,20 +76,36 @@ git clone https://github.com/stronghuni/FindLie.git ~/FindLie && cd ~/FindLie &&
 
 ## 출력 예시
 
-```
-╔══════════════════════════════════════════════════════╗
-║                 🔍 FindLie Report                    ║
-╚══════════════════════════════════════════════════════╝
+모든 `[LIE-NNN]` 항목은 **Actionable Fix Spec**을 따라 작성됩니다 — 다운스트림
+에이전트가 "무엇을 어떻게 고치면 되는지"를 `grep`으로 검증 가능한 형태로 받습니다.
 
+```
+[LIE-001] FAKE TOKEN VALIDATOR
+  Location:     src/auth/validate-token.ts:3-5
+  Type:         Intent Mismatch (Type 5) + Deceptive Return (Type 4)
+  Severity:     🔴 CRITICAL
+  Root cause:   validateToken always returns true; no signature check, no expiry.
+  Evidence:
+    ─────────────────────────────────
+    export function validateToken(token: string): boolean {
+      return true; // TODO: implement actual JWT validation
+    }
+    ─────────────────────────────────
+  Required invariant: Body must contain `jwt.verify(` AND at least one
+                      `throw` or `return false` path. `token` must be referenced.
+  Verification:       grep -E '(jwt\.verify|jose\.jwtVerify)' \
+                        src/auth/validate-token.ts  # must return ≥1 match
+  Confidence:         99%
+```
+
+집계 요약:
+
+```
 Scan: diff (main...feature/add-auth)
 Files analyzed: 23
 Lies detected: 7
 
-🔴 CRITICAL: 2    (fake/broken code)
-🟡 WARNING:  3    (fragile/incomplete code)
-🟠 DUPLICATE: 2   (redundant code)
-⚫ DEAD CODE: 2    (unused code)
-🔵 INFO:     1    (review recommended)
+🔴 CRITICAL: 2    🟡 WARNING: 3    🟠 DUPLICATE: 2    ⚫ DEAD CODE: 2    🔵 INFO: 1
 
 VERDICT: ❌ NOT SAFE TO SHIP — 2 critical lies detected
 
@@ -121,13 +141,25 @@ FindLie/
 ├── LICENSE                   # MIT License
 ├── setup                     # 설치 스크립트
 ├── AGENTS.md                 # 에이전트별 설정 가이드
-├── find-lie/SKILL.md         # /find-lie (표준 분석)
-├── lie-scan/SKILL.md         # /lie-scan (빠른 스캔)
-├── lie-deep/SKILL.md         # /lie-deep (심층 분석)
-└── references/
-    ├── patterns.md           # 탐지 패턴 정의
-    ├── checklist.md          # 검증 체크리스트
-    └── severity.md           # 심각도 기준
+├── CLAUDE.md                 # Claude Code용 기여 가이드
+├── find-lie/SKILL.md         # /find-lie (표준 분석 · 6 Phase)
+├── lie-scan/SKILL.md         # /lie-scan (빠른 스캔 · CI 모드 포함)
+├── lie-deep/SKILL.md         # /lie-deep (심층 분석 · Cross-Reference)
+├── references/
+│   ├── patterns.md           # 탐지 패턴 정의 (Type 1~10)
+│   ├── intent-map.md         # 함수명 ↔ 기대 동작 매핑 (Phase 2용)
+│   ├── checklist.md          # 검증 체크리스트
+│   └── severity.md           # 심각도 기준 + Actionable Fix Spec
+└── fixtures/                 # 회귀 테스트 픽스처
+    ├── lies/                 # Type 1~10 거짓 코드 샘플
+    ├── clean/                # False-positive 방지용 정상 샘플
+    └── run-scan.sh           # 하네스 (패턴 수정 시 이것만 돌리면 됨)
+```
+
+### 패턴을 수정한다면
+
+```bash
+./fixtures/run-scan.sh   # PASS 28/28 이어야 함. FAIL 나면 회귀 발생.
 ```
 
 ---
