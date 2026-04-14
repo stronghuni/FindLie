@@ -1,5 +1,9 @@
 # FindLie 🔍 — AI Agent Lie Detector
 
+<div align="center">
+  <img src="./assets/findlie_logo.png" alt="FindLie Logo - Tom & Jerry Style" width="400"/>
+</div>
+
 **코드 속 거짓을 찾아내는 스킬.**
 
 AI 코딩 에이전트(Claude Code, Codex, Cursor 등)가 만든 코드가 **진짜 동작하는지** 검증합니다.
